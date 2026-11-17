@@ -90,38 +90,83 @@ def check_market_regime():
     except Exception:
         return True
 
-# --- MASTER WATCHLIST (16 Core Stocks) ---
+# --- YOUR CUSTOM MASTER WATCHLIST (16 Core Stocks) ---
 WATCHLIST = {
-    # 1. Banking & Financials
     "Bank: ICICI Bank": {"ticker": "ICICIBANK.NS", "keywords": ["icici bank", "icici"]},
     "Bank: SBI": {"ticker": "SBIN.NS", "keywords": ["state bank of india", "sbi"]},
     "Holding: Tata Investment (Tatsilv)": {"ticker": "TATAINVEST.NS", "keywords": ["tata investment", "tatsilv"]},
-    
-    # 2. Auto & EV
     "Auto: Tata Motors": {"ticker": "TATAMOTORS.NS", "keywords": ["tata motors", "jlr"]},
     "Auto: Bajaj Auto": {"ticker": "BAJAJ-AUTO.NS", "keywords": ["bajaj auto", "chetak"]},
-    
-    # 3. Defense & Heavy Engineering
     "Defense Ship: Mazdock": {"ticker": "MAZDOCK.NS", "keywords": ["mazagon dock", "mazdock"]},
-    
-    # 4. Pharma & Healthcare
     "Pharma: Sun Pharma": {"ticker": "SUNPHARMA.NS", "keywords": ["sun pharma", "sun pharmaceutical"]},
     "Pharma: Wockhardt (Wockpharma)": {"ticker": "WOCKPHARMA.NS", "keywords": ["wockhardt", "wockpharma"]},
-    
-    # 5. Power & Infrastructure
     "Power: Tata Power": {"ticker": "TATAPOWER.NS", "keywords": ["tata power"]},
     "Realty: Omaxe": {"ticker": "OMAXE.NS", "keywords": ["omaxe"]},
-    
-    # 6. Consumer & Specialty Retail (Sotl, Kmew)
     "Consumer: Senco Gold (Sotl)": {"ticker": "SENCO.NS", "keywords": ["senco gold", "senco", "sotl"]},
     "Consumer: Kewal Kiran (Kmew)": {"ticker": "KKCL.NS", "keywords": ["kewal kiran", "kmew", "kkcl"]},
-    
-    # 7. Commodities & Metals
     "Metal: Tata Steel": {"ticker": "TATASTEEL.NS", "keywords": ["tata steel"]},
-    
-    # 8. Energy Upstream (Crude Hedge)
     "Energy: ONGC (Crude Hedge)": {"ticker": "ONGC.NS", "keywords": ["ongc", "oil and natural gas", "crude", "oil prices"]}
 }
+
+@st.cache_data(ttl=3600)
+def get_dynamic_market_universe():
+    """
+    Dynamically scrapes Nifty 50 constituents from Wikipedia and combines them 
+    with high-liquidity Nifty Midcap 100 stocks. Ranks them by today's price momentum.
+    """
+    symbols = []
+    try:
+        url_n50 = "https://en.wikipedia.org/wiki/NIFTY_50"
+        tables = pd.read_html(url_n50)
+        for table in tables:
+            if 'Symbol' in table.columns:
+                symbols.extend([sym + ".NS" for sym in table['Symbol'].tolist()])
+                break
+    except Exception:
+        pass
+
+    # High-liquidity representative Nifty Midcap 100 pool
+    midcap_pool = [
+        "TRENT.NS", "PERSISTENT.NS", "POLYCAB.NS", "ASTRAL.NS", "BSE.NS",
+        "MUTHOOTFIN.NS", "APOLLOTYRE.NS", "DIXON.NS", "LUPIN.NS", "IDFCFIRSTB.NS",
+        "PAGEIND.NS", "VOLTAS.NS", "CANBK.NS", "CHOLAFIN.NS", "SRF.NS",
+        "COFORGE.NS", "BDL.NS", "HAL.NS", "BEL.NS", "SUPREMEIND.NS",
+        "KPITTECH.NS", "OBEROIRLTY.NS", "MAXHEALTH.NS", "PERSISTENT.NS"
+    ]
+    symbols.extend(midcap_pool)
+    symbols = list(set(symbols))
+
+    active_movers = {}
+    for ticker in symbols:
+        try:
+            time.sleep(0.1)
+            stock = yf.Ticker(ticker)
+            df = stock.history(period="5d", interval="1d")
+            if df is None or df.empty or len(df) < 5:
+                continue
+            if isinstance(df.columns, pd.MultiIndex):
+                df.columns = df.columns.get_level_values(0)
+                
+            latest_close = float(df['Close'].iloc[-1])
+            prev_close = float(df['Close'].iloc[-2])
+            pct_change = ((latest_close - prev_close) / prev_close) * 100
+            avg_volume = float(df['Volume'].mean())
+            
+            if avg_volume > 50000 and abs(pct_change) >= 0.4:
+                clean_name = ticker.replace(".NS", "")
+                active_movers[f"Dynamic Index: {clean_name} ({pct_change:+.1f}%)"] = {
+                    "ticker": ticker,
+                    "keywords": [clean_name.lower()],
+                    "momentum": abs(pct_change)
+                }
+        except Exception:
+            continue
+            
+    # Sort dynamically by highest absolute daily price movement and take top 12 active movers
+    sorted_movers = dict(
+        sorted(active_movers.items(), key=lambda item: item[1]['momentum'], reverse=True)[:12]
+    )
+    return sorted_movers
 
 def send_telegram_alert(message):
     if "YOUR_BOT_TOKEN" in TELEGRAM_BOT_TOKEN:
@@ -135,10 +180,10 @@ def send_telegram_alert(message):
 
 @st.cache_data(ttl=300)
 def fetch_stock_data(ticker):
-    """Fetches stock data with rate-limit throttling and multi-attempt retry."""
+    """Fetches watchlist stock data with short caching."""
     for attempt in range(3):
         try:
-            time.sleep(0.4)
+            time.sleep(0.3)
             stock = yf.Ticker(ticker)
             df = stock.history(period="3mo", interval="1d")
             
@@ -155,10 +200,7 @@ def fetch_stock_data(ticker):
             df['EMA_20'] = df['Close'].ewm(span=20, adjust=False).mean()
             df['Vol_SMA_20'] = df['Volume'].rolling(20).mean()
             
-            high_low = df['High'] - df['Low']
-            high_close = np.abs(df['High'] - df['Close'].shift(1))
-            low_close = np.abs(df['Low'] - df['Close'].shift(1))
-            ranges = pd.concat([high_low, high_close, low_close], axis=1)
+            ranges = pd.concat([df['High'] - df['Low'], np.abs(df['High'] - df['Close'].shift(1)), np.abs(df['Low'] - df['Close'].shift(1))], axis=1)
             true_range = np.max(ranges, axis=1)
             df['ATR_14'] = true_range.rolling(14).mean()
             
@@ -170,6 +212,39 @@ def fetch_stock_data(ticker):
             time.sleep(0.5)
             continue
     return None
+
+@st.cache_data(ttl=3600)  # Hourly Cache for Dynamic Scanner
+def fetch_dynamic_scanner_data():
+    """Scans the dynamically fetched Nifty 50 & Midcap universe once per hour."""
+    scanner_universe = get_dynamic_market_universe()
+    results_data = {}
+    for label, info in scanner_universe.items():
+        ticker = info["ticker"]
+        try:
+            time.sleep(0.2)
+            stock = yf.Ticker(ticker)
+            df = stock.history(period="3mo", interval="1d")
+            if df is None or df.empty or len(df) < 20:
+                continue
+            if isinstance(df.columns, pd.MultiIndex):
+                df.columns = df.columns.get_level_values(0)
+                
+            df['EMA_20'] = df['Close'].ewm(span=20, adjust=False).mean()
+            df['Vol_SMA_20'] = df['Volume'].rolling(20).mean()
+            ranges = pd.concat([df['High'] - df['Low'], np.abs(df['High'] - df['Close'].shift(1)), np.abs(df['Low'] - df['Close'].shift(1))], axis=1)
+            true_range = np.max(ranges, axis=1)
+            df['ATR_14'] = true_range.rolling(14).mean()
+            df['Buy_Limit'] = df['EMA_20'] - (1.2 * df['ATR_14'])
+            df['Sell_Limit'] = df['Buy_Limit'] + (2.5 * df['ATR_14'])
+            
+            results_data[ticker] = {
+                "label": label,
+                "keywords": info["keywords"],
+                "data": df.iloc[-1]
+            }
+        except Exception:
+            continue
+    return results_data
 
 def find_matching_news(keywords, news_items):
     catalyst_tags = ["bonus", "split", "dividend", "rights", "order", "acquisition", "expansion", "partnership", "approval"]
@@ -184,9 +259,8 @@ def find_matching_news(keywords, news_items):
 
 # --- STREAMLIT WEB UI ---
 st.set_page_config(page_title="Quantitative Swing Trading Alpha Engine", layout="wide")
-st.title("⚡ Quantitative Swing Trading Dashboard (Anti-Spam & 1% Filter Active)")
+st.title("⚡ Quantitative Swing Trading Dashboard (Dynamic Nifty 50 & Midcap 100 Scanner)")
 
-# Initialize session state memory for anti-spam alert prices
 if 'last_alert_prices' not in st.session_state:
     st.session_state['last_alert_prices'] = {}
 
@@ -206,16 +280,19 @@ with col2:
 
 with col3:
     if market_active:
-        st.success("🟢 **Market Status:** OPEN (9:00 - 3:30 IST)")
+        st.success("🟢 **Market Status:** OPEN")
     else:
-        st.warning("🌙 **Market Status:** CLOSED (Alerts Paused)")
+        st.warning("🌙 **Market Status:** CLOSED")
 
-if st.button("🔄 Refresh Market Data & Macro Feeds"):
+if st.button("🔄 Refresh Market Data & Dynamic Scan"):
+    st.cache_data.clear()
     st.rerun()
 
 live_news = fetch_live_news()
 dashboard_data = []
+watchlist_strong_buy_found = False
 
+# --- 1. EVALUATE PRIMARY WATCHLIST ---
 for label, info in WATCHLIST.items():
     ticker = info["ticker"]
     keywords = info["keywords"]
@@ -225,6 +302,7 @@ for label, info in WATCHLIST.items():
     
     if latest is None:
         dashboard_data.append({
+            "Source": "Watchlist",
             "Watchlist Item": label,
             "Ticker": ticker,
             "Status": "DATA UNAVAILABLE",
@@ -247,55 +325,39 @@ for label, info in WATCHLIST.items():
         volume = float(latest['Volume']) if pd.notna(latest['Volume']) else 0.0
         vol_sma20 = float(latest['Vol_SMA_20']) if pd.notna(latest['Vol_SMA_20']) else 0.0
         
-        if ltp == 0.0 or buy_limit == 0.0:
-            raise ValueError("Invalid price calculated")
-            
         distance_from_ema = ((ltp - ema20) / ema20) * 100 if ema20 > 0 else 0.0
         volume_confirmed = volume > vol_sma20
-        
         risk_per_share = 1.2 * atr14 if atr14 > 0 else 1.0
         suggested_qty = int(MAX_RISK_PER_TRADE / risk_per_share) if risk_per_share > 0 else 0
         allocated_capital = min(125000, suggested_qty * ltp)
         
-        # --- STATE MEMORY & ANTI-SPAM LOGIC (1% DIP/RALLY RULE) ---
         last_alerted = st.session_state['last_alert_prices'].get(ticker, 0)
         
         if is_bullish_market and ltp <= buy_limit * 1.01 and volume_confirmed:
-            # Fire alert only if first time OR if price drops an additional 1% or lower than last alert price
+            watchlist_strong_buy_found = True
             should_alert = market_active and ((last_alerted == 0) or (ltp <= last_alerted * 0.99))
-            
             status = "STRONG BUY"
             if should_alert:
                 st.session_state['last_alert_prices'][ticker] = ltp
-                if has_news:
-                    action_trigger = "🟢 BUY (Regime + Volume + Catalyst)"
-                    send_telegram_alert(f"🚨 *STRONG BUY (DIP 1%+)*: {ticker} ({label}) at ₹{ltp:.2f}!\nQty: {suggested_qty}\nCatalyst: {news_headline}")
-                else:
-                    action_trigger = "🟢 BUY (Regime + Volume Action)"
-                    send_telegram_alert(f"🚨 *STRONG BUY (DIP 1%+)*: {ticker} ({label}) hit buy zone at ₹{ltp:.2f}!\nQty: {suggested_qty}")
+                send_telegram_alert(f"🚨 *STRONG BUY (WATCHLIST)*: {ticker} ({label}) at ₹{ltp:.2f}!\nQty: {suggested_qty}")
+                action_trigger = "🟢 BUY ALERT SENT"
             else:
-                action_trigger = "🟢 BUY (Monitoring - Cooldown Active)"
-                
+                action_trigger = "🟢 BUY (Cooldown Active)"
         elif distance_from_ema > 8.0 or ltp >= sell_limit * 0.995:
-            # Fire alert only if first time OR if price rallies an additional 1% or higher than last alert price
             should_alert = market_active and ((last_alerted == 0) or (ltp >= last_alerted * 1.01))
-            
             status = "STRONG SELL"
             if should_alert:
                 st.session_state['last_alert_prices'][ticker] = ltp
-                if has_news:
-                    action_trigger = "🔴 SELL (Target / News Overextension)"
-                    send_telegram_alert(f"🚨 *STRONG SELL*: {ticker} ({label}) reached target at ₹{ltp:.2f}!")
-                else:
-                    action_trigger = "🔴 SELL (Target / Price Overextended)"
-                    send_telegram_alert(f"🚨 *STRONG SELL*: {ticker} ({label}) hit sell limit at ₹{ltp:.2f}!")
+                send_telegram_alert(f"🚨 *STRONG SELL (WATCHLIST)*: {ticker} ({label}) at ₹{ltp:.2f}!")
+                action_trigger = "🔴 SELL ALERT SENT"
             else:
-                action_trigger = "🔴 SELL (Monitoring - Cooldown Active)"
+                action_trigger = "🔴 SELL (Cooldown Active)"
         else:
             status = "HOLD / WATCH"
-            action_trigger = "🔵 WAITING FOR SETUP" if not volume_confirmed else "⚪ MONITORING"
+            action_trigger = "🔵 WAITING FOR SETUP"
             
         dashboard_data.append({
+            "Source": "Watchlist",
             "Watchlist Item": label,
             "Ticker": ticker,
             "Status": status,
@@ -307,24 +369,50 @@ for label, info in WATCHLIST.items():
             "Sell Target (₹)": round(sell_limit, 2),
             "Portal News Catalyst": news_headline
         })
-    except Exception as e:
-        dashboard_data.append({
-            "Watchlist Item": label,
-            "Ticker": ticker,
-            "Status": "DATA UNAVAILABLE",
-            "Action Trigger": "Retry on Refresh",
-            "Rec. Qty": 0,
-            "Tranche (₹)": 0,
-            "LTP (₹)": 0.0,
-            "Buy Limit (₹)": 0.0,
-            "Sell Target (₹)": 0.0,
-            "Portal News Catalyst": "Error parsing data"
-        })
+    except Exception:
+        pass
+
+# --- 2. EVALUATE DYNAMIC HOURLY NIFTY 50 & MIDCAP 100 SCANNER ---
+if not watchlist_strong_buy_found and is_bullish_market:
+    st.info("ℹ️ No Strong Buy in Watchlist. Running **Dynamic Hourly Nifty 50 & Midcap 100 Scanner**...")
+    dynamic_data = fetch_dynamic_scanner_data()
+    
+    for ticker, item in dynamic_data.items():
+        label = item["label"]
+        keywords = item["keywords"]
+        latest = item["data"]
+        news_headline, has_news = find_matching_news(keywords, live_news)
+        
+        try:
+            ltp = float(latest['Close'])
+            buy_limit = float(latest['Buy_Limit'])
+            volume = float(latest['Volume'])
+            vol_sma20 = float(latest['Vol_SMA_20'])
+            volume_confirmed = volume > vol_sma20
+            
+            if ltp <= buy_limit * 1.01 and volume_confirmed:
+                last_alerted = st.session_state['last_alert_prices'].get(ticker, 0)
+                should_alert = market_active and ((last_alerted == 0) or (ltp <= last_alerted * 0.99))
+                
+                if should_alert:
+                    st.session_state['last_alert_prices'][ticker] = ltp
+                    send_telegram_alert(f"🚨 *DYNAMIC INDEX BUY*: {ticker} ({label}) at ₹{ltp:.2f} hitting dip zone!")
+                
+                dashboard_data.append({
+                    "Source": "Dynamic Index Scan",
+                    "Watchlist Item": label,
+                    "Ticker": ticker,
+                    "Status": "STRONG BUY (DYNAMIC SCAN)",
+                    "Action Trigger": "🟢 DYNAMIC OPPORTUNITY",
+                    "Rec. Qty": int(MAX_RISK_PER_TRADE / (1.2 * float(latest['ATR_14']))),
+                    "Tranche (₹)": 125000,
+                    "LTP (₹)": round(ltp, 2),
+                    "Buy Limit (₹)": round(buy_limit, 2),
+                    "Sell Target (₹)": round(float(latest['Sell_Limit']), 2),
+                    "Portal News Catalyst": news_headline
+                })
+        except Exception:
+            continue
 
 df_display = pd.DataFrame(dashboard_data)
 st.dataframe(df_display, width='stretch')
-
-st.markdown("---")
-st.markdown("### 💡 Operating Rules")
-st.markdown("- **Trading Window:** Automated Telegram push alerts are restricted exclusively to Indian market hours (9:00 AM – 3:30 PM IST).")
-st.markdown("- **Anti-Spam Cooldown & 1% Rule:** Once a stock triggers an alert, it will remain silent until the price moves by **at least an additional 1%** away from the last alerted price level.")
