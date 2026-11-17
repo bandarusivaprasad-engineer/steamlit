@@ -4,6 +4,7 @@ import yfinance as yf
 import pandas as pd
 import numpy as np
 import feedparser
+import time
 
 # --- CONFIGURATION ---
 TELEGRAM_BOT_TOKEN = "9130021718:AAE-BcPfkWwWrgjAz850FFJ0l82j4wZzkF0"  # Replace with your BotFather token
@@ -11,7 +12,7 @@ TELEGRAM_CHAT_ID = "8224498772"      # Replace with your numeric Chat ID
 TOTAL_CAPITAL = 500000                      # ₹5 Lakhs total capital base
 MAX_RISK_PER_TRADE = 7500                   # 1.5% strict risk rule (₹7,500)
 
-# --- MULTI-PORTAL RSS NEWS SOURCES ---
+# --- MULTI-PORTAL RSS NEWS & GEOPOLITICAL SOURCES ---
 NEWS_FEEDS = [
     "https://www.moneycontrol.com/rss/business.xml",
     "https://economictimes.indiatimes.com/rssfeedsdefault.cms",
@@ -21,12 +22,12 @@ NEWS_FEEDS = [
 
 @st.cache_data(ttl=600)
 def fetch_live_news():
-    """Fetches and parses live headlines from major financial portals."""
+    """Fetches and parses live headlines from major financial portals, scanning for war/geopolitics/oil."""
     all_headlines = []
     for url in NEWS_FEEDS:
         try:
             feed = feedparser.parse(url)
-            for entry in feed.entries[:25]:
+            for entry in feed.entries[:30]:
                 all_headlines.append({
                     "title": entry.title.lower(),
                     "raw_title": entry.title,
@@ -37,12 +38,34 @@ def fetch_live_news():
     return all_headlines
 
 @st.cache_data(ttl=300)
+def fetch_brent_crude_macro():
+    """Fetches live Brent Crude price (BZ=F) to evaluate macro energy shocks."""
+    try:
+        brent = yf.download("BZ=F", period="5d", interval="1d", progress=False)
+        if brent is None or brent.empty:
+            return 85.0, "Stable"
+        if isinstance(brent.columns, pd.MultiIndex):
+            brent.columns = brent.columns.get_level_values(0)
+        current_brent = float(brent['Close'].iloc[-1])
+        prev_brent = float(brent['Close'].iloc[-2])
+        change_pct = ((current_brent - prev_brent) / prev_brent) * 100
+        
+        status = "Normal"
+        if current_brent > 95.0:
+            status = "Elevated (Inflationary / Supply Risk)"
+        elif change_pct > 3.0:
+            status = "Sharp Spike (Geopolitical Shock)"
+        return round(current_brent, 2), status
+    except Exception:
+        return 85.0, "Normal"
+
+@st.cache_data(ttl=300)
 def check_market_regime():
     """Macro Filter: Checks if Nifty 50 is bullish (above its 50 EMA)."""
     try:
         nifty = yf.download("^NSEI", period="3mo", interval="1d", progress=False)
         if nifty is None or nifty.empty:
-            return True  # Default fallback if fetch fails
+            return True
         if isinstance(nifty.columns, pd.MultiIndex):
             nifty.columns = nifty.columns.get_level_values(0)
         nifty['EMA_50'] = nifty['Close'].ewm(span=50, adjust=False).mean()
@@ -52,7 +75,7 @@ def check_market_regime():
     except Exception:
         return True
 
-# --- FULL 40-STOCK WATCHLIST (8 Sectors x 5 Stocks) ---
+# --- UPDATED WATCHLIST (IT Removed, Custom Stocks Added + Crude Hedging Play ONGC) ---
 WATCHLIST = {
     # 1. Auto & EV
     "Auto: Tata Motors": {"ticker": "TATAMOTORS.NS", "keywords": ["tata motors", "jlr"]},
@@ -82,28 +105,34 @@ WATCHLIST = {
     "Marine: SCI": {"ticker": "SCI.NS", "keywords": ["shipping corporation", "sci"]},
     "Marine: Allcargo": {"ticker": "ALLCARGO.NS", "keywords": ["allcargo"]},
     
-    # 5. Pharma & Healthcare
+    # 5. Pharma & Custom Additions
     "Pharma: Sun Pharma": {"ticker": "SUNPHARMA.NS", "keywords": ["sun pharma", "sun pharmaceutical"]},
     "Pharma: Dr Reddy": {"ticker": "DRREDDY.NS", "keywords": ["dr reddy", "dr. reddy"]},
     "Pharma: Cipla": {"ticker": "CIPLA.NS", "keywords": ["cipla"]},
     "Pharma: Divis Lab": {"ticker": "DIVISLAB.NS", "keywords": ["divis laboratories", "divi's"]},
-    "Pharma: Alkem Labs": {"ticker": "ALKEM.NS", "keywords": ["alkem"]},
+    "Pharma: Wockhardt": {"ticker": "WOCKPHARMA.NS", "keywords": ["wockhardt", "wockpharma"]},
     
-    # 6. IT & Technology
-    "IT: TCS": {"ticker": "TCS.NS", "keywords": ["tcs", "tata consultancy"]},
-    "IT: Infosys": {"ticker": "INFY.NS", "keywords": ["infosys", "infy"]},
-    "IT: HCL Tech": {"ticker": "HCLTECH.NS", "keywords": ["hcl tech", "hcltechnologies"]},
-    "IT: Tech Mahindra": {"ticker": "TECHM.NS", "keywords": ["tech mahindra"]},
-    "IT: Coforge": {"ticker": "COFORGE.NS", "keywords": ["coforge"]},
+    # 6. Real Estate & Infrastructure Beta
+    "Realty: Omaxe": {"ticker": "OMAXE.NS", "keywords": ["omaxe"]},
     
-    # 7. Metals & Mining
+    # 7. Holding & Financial Beta
+    "Holding: Tata Investment": {"ticker": "TATAINVEST.NS", "keywords": ["tata investment", "tatsilv"]},
+    
+    # 8. Consumer & Specialty
+    "Consumer: Senco Gold": {"ticker": "SENCO.NS", "keywords": ["senco gold", "senco", "sotl"]},
+    "Consumer: Kewal Kiran": {"ticker": "KEMISTAR.NS", "keywords": ["kewal kiran", "kmew"]},
+
+    # 9. Energy Upstream (Crude Hedge Play)
+    "Energy: ONGC (Crude Hedge)": {"ticker": "ONGC.NS", "keywords": ["ongc", "oil and natural gas", "crude", "oil prices"]},
+
+    # 10. Metals & Mining
     "Metal: Tata Steel": {"ticker": "TATASTEEL.NS", "keywords": ["tata steel"]},
     "Metal: Hindalco": {"ticker": "HINDALCO.NS", "keywords": ["hindalco"]},
     "Metal: JSW Steel": {"ticker": "JSWSTEEL.NS", "keywords": ["jsw steel"]},
     "Metal: Jindal Stainless": {"ticker": "JSL.NS", "keywords": ["jindal stainless", "jsl"]},
     "Metal: Vedanta": {"ticker": "VEDL.NS", "keywords": ["vedanta", "vedl"]},
     
-    # 8. Banking & Financials
+    # 11. Banking & Financials
     "Bank: ICICI Bank": {"ticker": "ICICIBANK.NS", "keywords": ["icici bank", "icici"]},
     "Bank: Axis Bank": {"ticker": "AXISBANK.NS", "keywords": ["axis bank"]},
     "Bank: SBI": {"ticker": "SBIN.NS", "keywords": ["state bank of india", "sbi"]},
@@ -123,32 +152,39 @@ def send_telegram_alert(message):
 
 @st.cache_data(ttl=300)
 def fetch_stock_data(ticker):
-    try:
-        df = yf.download(ticker, period="3mo", interval="1d", progress=False)
-        if df is None or df.empty:
-            return None
-        if isinstance(df.columns, pd.MultiIndex):
-            df.columns = df.columns.get_level_values(0)
-        if 'Close' not in df.columns or 'High' not in df.columns or 'Low' not in df.columns or 'Volume' not in df.columns:
-            return None
-        
-        df['EMA_20'] = df['Close'].ewm(span=20, adjust=False).mean()
-        df['Vol_SMA_20'] = df['Volume'].rolling(20).mean()
-        
-        high_low = df['High'] - df['Low']
-        high_close = np.abs(df['High'] - df['Close'].shift(1))
-        low_close = np.abs(df['Low'] - df['Close'].shift(1))
-        ranges = pd.concat([high_low, high_close, low_close], axis=1)
-        true_range = np.max(ranges, axis=1)
-        df['ATR_14'] = true_range.rolling(14).mean()
-        
-        df['Buy_Limit'] = df['EMA_20'] - (1.2 * df['ATR_14'])
-        df['Sell_Limit'] = df['Buy_Limit'] + (2.5 * df['ATR_14'])
-        
-        return df.iloc[-1]
-    except Exception as e:
-        print(f"Error fetching {ticker}: {e}")
-        return None
+    for attempt in range(3):
+        try:
+            stock = yf.Ticker(ticker)
+            df = stock.history(period="3mo", interval="1d")
+            
+            if df is None or df.empty or len(df) < 20:
+                time.sleep(1)
+                continue
+                
+            if isinstance(df.columns, pd.MultiIndex):
+                df.columns = df.columns.get_level_values(0)
+                
+            if 'Close' not in df.columns or 'High' not in df.columns or 'Low' not in df.columns or 'Volume' not in df.columns:
+                return None
+            
+            df['EMA_20'] = df['Close'].ewm(span=20, adjust=False).mean()
+            df['Vol_SMA_20'] = df['Volume'].rolling(20).mean()
+            
+            high_low = df['High'] - df['Low']
+            high_close = np.abs(df['High'] - df['Close'].shift(1))
+            low_close = np.abs(df['Low'] - df['Close'].shift(1))
+            ranges = pd.concat([high_low, high_close, low_close], axis=1)
+            true_range = np.max(ranges, axis=1)
+            df['ATR_14'] = true_range.rolling(14).mean()
+            
+            df['Buy_Limit'] = df['EMA_20'] - (1.2 * df['ATR_14'])
+            df['Sell_Limit'] = df['Buy_Limit'] + (2.5 * df['ATR_14'])
+            
+            return df.iloc[-1]
+        except Exception as e:
+            time.sleep(1)
+            continue
+    return None
 
 def find_matching_news(keywords, news_items):
     for item in news_items:
@@ -159,16 +195,23 @@ def find_matching_news(keywords, news_items):
 
 # --- STREAMLIT WEB UI ---
 st.set_page_config(page_title="Quantitative Swing Trading Alpha Engine", layout="wide")
-st.title("⚡ Quantitative Multi-Sector Swing Trading Dashboard")
+st.title("⚡ Quantitative Swing Trading Dashboard (Macro & Crude Integrated)")
 
-# Check Nifty Macro Regime
+# Macro Dashboards (Nifty + Brent Crude)
+col1, col2 = st.columns(2)
 is_bullish_market = check_market_regime()
-if is_bullish_market:
-    st.success("🌐 **Market Regime Filter:** Nifty 50 is **BULLISH** (Above 50 EMA). Buy and Sell signals are fully active.")
-else:
-    st.error("⚠️ **Market Regime Filter:** Nifty 50 is **BEARISH** (Below 50 EMA). New BUY signals are suppressed to protect capital.")
+brent_price, brent_status = fetch_brent_crude_macro()
 
-if st.button("🔄 Refresh Market Data & Signals"):
+with col1:
+    if is_bullish_market:
+        st.success("🌐 **Nifty Regime:** BULLISH (Above 50 EMA)")
+    else:
+        st.error("⚠️ **Nifty Regime:** BEARISH (Below 50 EMA)")
+
+with col2:
+    st.info(f"🛢️ **Brent Crude Benchmark:** ${brent_price} / bbl | **Status:** {brent_status}")
+
+if st.button("🔄 Refresh Market Data & Macro Feeds"):
     st.rerun()
 
 live_news = fetch_live_news()
@@ -202,12 +245,11 @@ for label, info in WATCHLIST.items():
         distance_from_ema = ((ltp - ema20) / ema20) * 100
         volume_confirmed = volume > vol_sma20
         
-        # Position Sizing Calculation (Risk-based sizing for ₹7,500 max loss)
         risk_per_share = 1.2 * atr14
         suggested_qty = int(MAX_RISK_PER_TRADE / risk_per_share) if risk_per_share > 0 else 0
-        allocated_capital = min(125000, suggested_qty * ltp) # Capped at ₹1.25L tranche
+        allocated_capital = min(125000, suggested_qty * ltp)
         
-        # --- QUANTITATIVE DECISION ENGINE ---
+        # --- QUANTITATIVE CONVERGENCE ENGINE ---
         if is_bullish_market and ltp <= buy_limit * 1.01 and volume_confirmed:
             status = "STRONG BUY"
             if has_news:
@@ -247,7 +289,6 @@ df_display = pd.DataFrame(dashboard_data)
 st.dataframe(df_display, width='stretch')
 
 st.markdown("---")
-st.markdown("### 💡 Quantitative Risk & Position Sizing Rules (₹5L Capital)")
-st.markdown("- **Max Capital Per Tranche:** ₹1,25,000 (Split across 4 tranches max).")
-st.markdown("- **Max Risk Per Trade:** 1.5% of total capital (₹7,500) enforced via ATR volatility sizing.")
-st.markdown("- **Macro Protection:** If Nifty 50 drops below its 50 EMA, all automated buy alerts freeze automatically.")
+st.markdown("### 💡 Quantitative Macro Rules (₹5L Capital)")
+st.markdown("- **Crude Oil Tracking:** Live tracking of Brent Crude (`BZ=F`) helps identify inflation shocks or supply crunches.")
+st.markdown("- **Upstream Hedge:** ONGC (`ONGC.NS`) added to hedge against rising oil prices during geopolitical tensions.")
