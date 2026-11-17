@@ -27,7 +27,7 @@ def fetch_live_news():
     for url in NEWS_FEEDS:
         try:
             feed = feedparser.parse(url)
-            for entry in feed.entries[:30]:
+            for entry in feed.entries[:35]:
                 title_lower = entry.title.lower()
                 all_headlines.append({
                     "title": title_lower,
@@ -76,30 +76,36 @@ def check_market_regime():
     except Exception:
         return True
 
-# --- CUSTOM USER WATCHLIST (IT Removed, All Requested Stocks Included) ---
+# --- MASTER WATCHLIST (Including Kewal Kiran / Kmew [KKCL.NS]) ---
 WATCHLIST = {
-    # 1. Banking & Financials (Defensive / Heavyweight Rotation)
+    # 1. Banking & Financials
     "Bank: ICICI Bank": {"ticker": "ICICIBANK.NS", "keywords": ["icici bank", "icici"]},
     "Bank: SBI": {"ticker": "SBIN.NS", "keywords": ["state bank of india", "sbi"]},
     "Holding: Tata Investment (Tatsilv)": {"ticker": "TATAINVEST.NS", "keywords": ["tata investment", "tatsilv"]},
     
-    # 2. Auto & EV (Cyclical)
+    # 2. Auto & EV
+    "Auto: Tata Motors": {"ticker": "TATAMOTORS.NS", "keywords": ["tata motors", "jlr"]},
     "Auto: Bajaj Auto": {"ticker": "BAJAJ-AUTO.NS", "keywords": ["bajaj auto", "chetak"]},
     
-    # 3. Defense & Heavy Engineering (Momentum)
+    # 3. Defense & Heavy Engineering
     "Defense Ship: Mazdock": {"ticker": "MAZDOCK.NS", "keywords": ["mazagon dock", "mazdock"]},
     
-    # 4. Pharma & Healthcare (Defensive)
+    # 4. Pharma & Healthcare
+    "Pharma: Sun Pharma": {"ticker": "SUNPHARMA.NS", "keywords": ["sun pharma", "sun pharmaceutical"]},
     "Pharma: Wockhardt (Wockpharma)": {"ticker": "WOCKPHARMA.NS", "keywords": ["wockhardt", "wockpharma"]},
     
-    # 5. Consumer & Specialty Retail (Sotl, Kmew)
-    "Consumer: Senco Gold (Sotl)": {"ticker": "SENCO.NS", "keywords": ["senco gold", "senco", "sotl"]},
-    "Consumer: Kewal Kiran (Kmew)": {"ticker": "KEMISTAR.NS", "keywords": ["kewal kiran", "kmew"]},
-    
-    # 6. Real Estate & Infrastructure Beta (Omaxe)
+    # 5. Power & Infrastructure
+    "Power: Tata Power": {"ticker": "TATAPOWER.NS", "keywords": ["tata power"]},
     "Realty: Omaxe": {"ticker": "OMAXE.NS", "keywords": ["omaxe"]},
     
-    # 7. Energy Upstream (Crude Geopolitical Hedge)
+    # 6. Consumer & Specialty Retail (Sotl, Kmew / KKCL)
+    "Consumer: Senco Gold (Sotl)": {"ticker": "SENCO.NS", "keywords": ["senco gold", "senco", "sotl"]},
+    "Consumer: Kewal Kiran (Kmew)": {"ticker": "KKCL.NS", "keywords": ["kewal kiran", "kmew", "kkcl"]},
+    
+    # 7. Commodities & Metals
+    "Metal: Tata Steel": {"ticker": "TATASTEEL.NS", "keywords": ["tata steel"]},
+    
+    # 8. Energy Upstream (Crude Hedge)
     "Energy: ONGC (Crude Hedge)": {"ticker": "ONGC.NS", "keywords": ["ongc", "oil and natural gas", "crude", "oil prices"]}
 }
 
@@ -164,7 +170,7 @@ def find_matching_news(keywords, news_items):
 
 # --- STREAMLIT WEB UI ---
 st.set_page_config(page_title="Quantitative Swing Trading Alpha Engine", layout="wide")
-st.title("⚡ Quantitative Custom Swing Trading Dashboard")
+st.title("⚡ Quantitative Swing Trading Dashboard (Master Watchlist)")
 
 col1, col2 = st.columns(2)
 is_bullish_market = check_market_regime()
@@ -274,3 +280,9 @@ for label, info in WATCHLIST.items():
 
 df_display = pd.DataFrame(dashboard_data)
 st.dataframe(df_display, width='stretch')
+
+st.markdown("---")
+st.markdown("### 💡 Quantitative Risk & Position Sizing Rules (₹5L Capital)")
+st.markdown("- **Max Capital Per Tranche:** ₹1,25,000 (Split across 4 tranches max).")
+st.markdown("- **Max Risk Per Trade:** 1.5% of total capital (₹7,500) enforced via ATR volatility sizing.")
+st.markdown("- **Macro Protection:** If Nifty 50 drops below its 50 EMA, all automated buy alerts freeze automatically.")
