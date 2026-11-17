@@ -12,7 +12,7 @@ TELEGRAM_CHAT_ID = "8224498772"      # Replace with your numeric Chat ID
 TOTAL_CAPITAL = 500000                      # ₹5 Lakhs total capital base
 MAX_RISK_PER_TRADE = 7500                   # 1.5% strict risk rule (₹7,500)
 
-# --- MULTI-PORTAL RSS NEWS & GEOPOLITICAL SOURCES ---
+# --- MULTI-PORTAL RSS NEWS & CORPORATE ACTION SOURCES ---
 NEWS_FEEDS = [
     "https://www.moneycontrol.com/rss/business.xml",
     "https://economictimes.indiatimes.com/rssfeedsdefault.cms",
@@ -22,14 +22,15 @@ NEWS_FEEDS = [
 
 @st.cache_data(ttl=600)
 def fetch_live_news():
-    """Fetches and parses live headlines from major financial portals, scanning for war/geopolitics/oil."""
+    """Fetches and parses live headlines from major financial portals, prioritizing corporate announcements."""
     all_headlines = []
     for url in NEWS_FEEDS:
         try:
             feed = feedparser.parse(url)
-            for entry in feed.entries[:30]:
+            for entry in feed.entries[:40]:
+                title_lower = entry.title.lower()
                 all_headlines.append({
-                    "title": entry.title.lower(),
+                    "title": title_lower,
                     "raw_title": entry.title,
                     "link": entry.link
                 })
@@ -75,7 +76,7 @@ def check_market_regime():
     except Exception:
         return True
 
-# --- UPDATED WATCHLIST (IT Removed, Custom Stocks Added + Crude Hedging Play ONGC) ---
+# --- WATCHLIST (IT Removed, Custom Stocks + Energy Hedge Included) ---
 WATCHLIST = {
     # 1. Auto & EV
     "Auto: Tata Motors": {"ticker": "TATAMOTORS.NS", "keywords": ["tata motors", "jlr"]},
@@ -187,15 +188,23 @@ def fetch_stock_data(ticker):
     return None
 
 def find_matching_news(keywords, news_items):
+    """Scans headlines for stock keywords AND high-impact corporate catalysts (bonus, split, dividend, order win)."""
+    catalyst_tags = ["bonus", "split", "dividend", "rights", "order", "acquisition", "expansion", "partnership", "approval"]
+    
     for item in news_items:
+        title = item['title']
         for kw in keywords:
-            if kw in item['title']:
-                return item['raw_title'], True
+            if kw in title:
+                # Check if it contains a major corporate action tag
+                matched_tag = next((tag for tag in catalyst_tags if tag in title), "General News")
+                formatted_catalyst = f"[{matched_tag.upper()}] {item['raw_title']}"
+                return formatted_catalyst, True
+                
     return "No recent breaking news catalyst", False
 
 # --- STREAMLIT WEB UI ---
 st.set_page_config(page_title="Quantitative Swing Trading Alpha Engine", layout="wide")
-st.title("⚡ Quantitative Swing Trading Dashboard (Macro & Crude Integrated)")
+st.title("⚡ Quantitative Swing Trading Dashboard (Enhanced Corporate Catalysts)")
 
 # Macro Dashboards (Nifty + Brent Crude)
 col1, col2 = st.columns(2)
@@ -228,8 +237,14 @@ for label, info in WATCHLIST.items():
         dashboard_data.append({
             "Watchlist Item": label,
             "Ticker": ticker,
-            "Status": "DATA FETCH FAILED",
-            "Action Trigger": "Error"
+            "Status": "DATA UNAVAILABLE",
+            "Action Trigger": "Retry on Refresh",
+            "Rec. Qty": 0,
+            "Tranche (₹)": 0,
+            "LTP (₹)": 0.0,
+            "Buy Limit (₹)": 0.0,
+            "Sell Target (₹)": 0.0,
+            "Portal News Catalyst": "No data feed"
         })
         continue
         
@@ -253,8 +268,8 @@ for label, info in WATCHLIST.items():
         if is_bullish_market and ltp <= buy_limit * 1.01 and volume_confirmed:
             status = "STRONG BUY"
             if has_news:
-                action_trigger = "🟢 BUY (Regime + Volume + News)"
-                send_telegram_alert(f"🚨 *STRONG BUY*: {ticker} ({label}) at ₹{ltp:.2f}!\nQty: {suggested_qty} shares\nNews: {news_headline}")
+                action_trigger = "🟢 BUY (Regime + Volume + Catalyst)"
+                send_telegram_alert(f"🚨 *STRONG BUY*: {ticker} ({label}) at ₹{ltp:.2f}!\nQty: {suggested_qty} shares\nCatalyst: {news_headline}")
             else:
                 action_trigger = "🟢 BUY (Regime + Volume Action)"
                 send_telegram_alert(f"🚨 *STRONG BUY*: {ticker} ({label}) hit buy zone at ₹{ltp:.2f}!\nQty: {suggested_qty} shares")
@@ -283,12 +298,23 @@ for label, info in WATCHLIST.items():
             "Portal News Catalyst": news_headline
         })
     except Exception as e:
-        dashboard_data.append({"Watchlist Item": label, "Ticker": ticker, "Status": "ERROR", "Action Trigger": str(e)})
+        dashboard_data.append({
+            "Watchlist Item": label,
+            "Ticker": ticker,
+            "Status": "CALC ERROR",
+            "Action Trigger": str(e),
+            "Rec. Qty": 0,
+            "Tranche (₹)": 0,
+            "LTP (₹)": 0.0,
+            "Buy Limit (₹)": 0.0,
+            "Sell Target (₹)": 0.0,
+            "Portal News Catalyst": "Error parsing"
+        })
 
 df_display = pd.DataFrame(dashboard_data)
 st.dataframe(df_display, width='stretch')
 
 st.markdown("---")
-st.markdown("### 💡 Quantitative Macro Rules (₹5L Capital)")
-st.markdown("- **Crude Oil Tracking:** Live tracking of Brent Crude (`BZ=F`) helps identify inflation shocks or supply crunches.")
-st.markdown("- **Upstream Hedge:** ONGC (`ONGC.NS`) added to hedge against rising oil prices during geopolitical tensions.")
+st.markdown("### 💡 Quantitative Macro Rules & Corporate Catalyst Scanning (₹5L Capital)")
+st.markdown("- **Corporate Action Scanner:** Automatically flags headlines mentioning **Bonus Shares, Stock Splits, Dividends, Rights Issues, and Order Wins**.")
+st.markdown("- **Robust Sanitization:** Cleaned up data rows so network timeouts display clean placeholders instead of `None` values.")
