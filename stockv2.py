@@ -5,12 +5,26 @@ import pandas as pd
 import numpy as np
 import feedparser
 import time
+from datetime import datetime
+import pytz
 
 # --- CONFIGURATION ---
 TELEGRAM_BOT_TOKEN = "9130021718:AAE-BcPfkWwWrgjAz850FFJ0l82j4wZzkF0"  # Replace with your BotFather token
 TELEGRAM_CHAT_ID = "8224498772"      # Replace with your numeric Chat ID
 TOTAL_CAPITAL = 500000                      # ₹5 Lakhs total capital base
 MAX_RISK_PER_TRADE = 7500                   # 1.5% strict risk rule (₹7,500)
+
+# --- TIMEZONE CHECK (IST MARKET HOURS) ---
+IST = pytz.timezone('Asia/Kolkata')
+
+def is_market_open():
+    """Restricts automated alerts exclusively to Indian stock market trading hours (9:00 AM - 3:30 PM IST, Mon-Fri)."""
+    now = datetime.now(IST)
+    if now.weekday() >= 5:  # Weekend check
+        return False
+    market_start = now.replace(hour=9, minute=0, second=0, microsecond=0)
+    market_end = now.replace(hour=15, minute=30, second=0, microsecond=0)
+    return market_start <= now <= market_end
 
 # --- MULTI-PORTAL RSS NEWS & CORPORATE ACTION SOURCES ---
 NEWS_FEEDS = [
@@ -76,7 +90,7 @@ def check_market_regime():
     except Exception:
         return True
 
-# --- MASTER WATCHLIST (Including Kewal Kiran / Kmew [KKCL.NS]) ---
+# --- MASTER WATCHLIST (16 Core Stocks) ---
 WATCHLIST = {
     # 1. Banking & Financials
     "Bank: ICICI Bank": {"ticker": "ICICIBANK.NS", "keywords": ["icici bank", "icici"]},
@@ -98,7 +112,7 @@ WATCHLIST = {
     "Power: Tata Power": {"ticker": "TATAPOWER.NS", "keywords": ["tata power"]},
     "Realty: Omaxe": {"ticker": "OMAXE.NS", "keywords": ["omaxe"]},
     
-    # 6. Consumer & Specialty Retail (Sotl, Kmew / KKCL)
+    # 6. Consumer & Specialty Retail (Sotl, Kmew)
     "Consumer: Senco Gold (Sotl)": {"ticker": "SENCO.NS", "keywords": ["senco gold", "senco", "sotl"]},
     "Consumer: Kewal Kiran (Kmew)": {"ticker": "KKCL.NS", "keywords": ["kewal kiran", "kmew", "kkcl"]},
     
@@ -124,7 +138,7 @@ def fetch_stock_data(ticker):
     """Fetches stock data with rate-limit throttling and multi-attempt retry."""
     for attempt in range(3):
         try:
-            time.sleep(0.4)  # Throttling delay to prevent API blocks
+            time.sleep(0.4)
             stock = yf.Ticker(ticker)
             df = stock.history(period="3mo", interval="1d")
             
@@ -170,20 +184,31 @@ def find_matching_news(keywords, news_items):
 
 # --- STREAMLIT WEB UI ---
 st.set_page_config(page_title="Quantitative Swing Trading Alpha Engine", layout="wide")
-st.title("⚡ Quantitative Swing Trading Dashboard (Master Watchlist)")
+st.title("⚡ Quantitative Swing Trading Dashboard (Anti-Spam & 1% Filter Active)")
 
-col1, col2 = st.columns(2)
+# Initialize session state memory for anti-spam alert prices
+if 'last_alert_prices' not in st.session_state:
+    st.session_state['last_alert_prices'] = {}
+
+col1, col2, col3 = st.columns(3)
 is_bullish_market = check_market_regime()
 brent_price, brent_status = fetch_brent_crude_macro()
+market_active = is_market_open()
 
 with col1:
     if is_bullish_market:
-        st.success("🌐 **Nifty Regime:** BULLISH (Above 50 EMA)")
+        st.success("🌐 **Nifty Regime:** BULLISH")
     else:
-        st.error("⚠️ **Nifty Regime:** BEARISH (Below 50 EMA)")
+        st.error("⚠️ **Nifty Regime:** BEARISH")
 
 with col2:
-    st.info(f"🛢️ **Brent Crude Benchmark:** ${brent_price} / bbl | **Status:** {brent_status}")
+    st.info(f"🛢️ **Brent Crude:** ${brent_price} / bbl")
+
+with col3:
+    if market_active:
+        st.success("🟢 **Market Status:** OPEN (9:00 - 3:30 IST)")
+    else:
+        st.warning("🌙 **Market Status:** CLOSED (Alerts Paused)")
 
 if st.button("🔄 Refresh Market Data & Macro Feeds"):
     st.rerun()
@@ -232,22 +257,40 @@ for label, info in WATCHLIST.items():
         suggested_qty = int(MAX_RISK_PER_TRADE / risk_per_share) if risk_per_share > 0 else 0
         allocated_capital = min(125000, suggested_qty * ltp)
         
+        # --- STATE MEMORY & ANTI-SPAM LOGIC (1% DIP/RALLY RULE) ---
+        last_alerted = st.session_state['last_alert_prices'].get(ticker, 0)
+        
         if is_bullish_market and ltp <= buy_limit * 1.01 and volume_confirmed:
+            # Fire alert only if first time OR if price drops an additional 1% or lower than last alert price
+            should_alert = market_active and ((last_alerted == 0) or (ltp <= last_alerted * 0.99))
+            
             status = "STRONG BUY"
-            if has_news:
-                action_trigger = "🟢 BUY (Regime + Volume + Catalyst)"
-                send_telegram_alert(f"🚨 *STRONG BUY*: {ticker} ({label}) at ₹{ltp:.2f}!\nQty: {suggested_qty} shares\nCatalyst: {news_headline}")
+            if should_alert:
+                st.session_state['last_alert_prices'][ticker] = ltp
+                if has_news:
+                    action_trigger = "🟢 BUY (Regime + Volume + Catalyst)"
+                    send_telegram_alert(f"🚨 *STRONG BUY (DIP 1%+)*: {ticker} ({label}) at ₹{ltp:.2f}!\nQty: {suggested_qty}\nCatalyst: {news_headline}")
+                else:
+                    action_trigger = "🟢 BUY (Regime + Volume Action)"
+                    send_telegram_alert(f"🚨 *STRONG BUY (DIP 1%+)*: {ticker} ({label}) hit buy zone at ₹{ltp:.2f}!\nQty: {suggested_qty}")
             else:
-                action_trigger = "🟢 BUY (Regime + Volume Action)"
-                send_telegram_alert(f"🚨 *STRONG BUY*: {ticker} ({label}) hit buy zone at ₹{ltp:.2f}!\nQty: {suggested_qty} shares")
+                action_trigger = "🟢 BUY (Monitoring - Cooldown Active)"
+                
         elif distance_from_ema > 8.0 or ltp >= sell_limit * 0.995:
+            # Fire alert only if first time OR if price rallies an additional 1% or higher than last alert price
+            should_alert = market_active and ((last_alerted == 0) or (ltp >= last_alerted * 1.01))
+            
             status = "STRONG SELL"
-            if has_news:
-                action_trigger = "🔴 SELL (Target / News Overextension)"
-                send_telegram_alert(f"🚨 *STRONG SELL*: {ticker} ({label}) reached profit target/overextended at ₹{ltp:.2f}!")
+            if should_alert:
+                st.session_state['last_alert_prices'][ticker] = ltp
+                if has_news:
+                    action_trigger = "🔴 SELL (Target / News Overextension)"
+                    send_telegram_alert(f"🚨 *STRONG SELL*: {ticker} ({label}) reached target at ₹{ltp:.2f}!")
+                else:
+                    action_trigger = "🔴 SELL (Target / Price Overextended)"
+                    send_telegram_alert(f"🚨 *STRONG SELL*: {ticker} ({label}) hit sell limit at ₹{ltp:.2f}!")
             else:
-                action_trigger = "🔴 SELL (Target / Price Overextended)"
-                send_telegram_alert(f"🚨 *STRONG SELL*: {ticker} ({label}) hit sell limit at ₹{ltp:.2f}!")
+                action_trigger = "🔴 SELL (Monitoring - Cooldown Active)"
         else:
             status = "HOLD / WATCH"
             action_trigger = "🔵 WAITING FOR SETUP" if not volume_confirmed else "⚪ MONITORING"
@@ -282,7 +325,6 @@ df_display = pd.DataFrame(dashboard_data)
 st.dataframe(df_display, width='stretch')
 
 st.markdown("---")
-st.markdown("### 💡 Quantitative Risk & Position Sizing Rules (₹5L Capital)")
-st.markdown("- **Max Capital Per Tranche:** ₹1,25,000 (Split across 4 tranches max).")
-st.markdown("- **Max Risk Per Trade:** 1.5% of total capital (₹7,500) enforced via ATR volatility sizing.")
-st.markdown("- **Macro Protection:** If Nifty 50 drops below its 50 EMA, all automated buy alerts freeze automatically.")
+st.markdown("### 💡 Operating Rules")
+st.markdown("- **Trading Window:** Automated Telegram push alerts are restricted exclusively to Indian market hours (9:00 AM – 3:30 PM IST).")
+st.markdown("- **Anti-Spam Cooldown & 1% Rule:** Once a stock triggers an alert, it will remain silent until the price moves by **at least an additional 1%** away from the last alerted price level.")
