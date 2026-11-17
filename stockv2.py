@@ -22,12 +22,12 @@ NEWS_FEEDS = [
 
 @st.cache_data(ttl=600)
 def fetch_live_news():
-    """Fetches and parses live headlines from major financial portals, prioritizing corporate announcements."""
+    """Fetches and parses live headlines from major financial portals."""
     all_headlines = []
     for url in NEWS_FEEDS:
         try:
             feed = feedparser.parse(url)
-            for entry in feed.entries[:40]:
+            for entry in feed.entries[:30]:
                 title_lower = entry.title.lower()
                 all_headlines.append({
                     "title": title_lower,
@@ -76,69 +76,31 @@ def check_market_regime():
     except Exception:
         return True
 
-# --- WATCHLIST (IT Removed, Custom Stocks + Energy Hedge Included) ---
+# --- CUSTOM USER WATCHLIST (IT Removed, All Requested Stocks Included) ---
 WATCHLIST = {
-    # 1. Auto & EV
-    "Auto: Tata Motors": {"ticker": "TATAMOTORS.NS", "keywords": ["tata motors", "jlr"]},
-    "Auto: M&M": {"ticker": "M&M.NS", "keywords": ["mahindra", "m&m"]},
+    # 1. Banking & Financials (Defensive / Heavyweight Rotation)
+    "Bank: ICICI Bank": {"ticker": "ICICIBANK.NS", "keywords": ["icici bank", "icici"]},
+    "Bank: SBI": {"ticker": "SBIN.NS", "keywords": ["state bank of india", "sbi"]},
+    "Holding: Tata Investment (Tatsilv)": {"ticker": "TATAINVEST.NS", "keywords": ["tata investment", "tatsilv"]},
+    
+    # 2. Auto & EV (Cyclical)
     "Auto: Bajaj Auto": {"ticker": "BAJAJ-AUTO.NS", "keywords": ["bajaj auto", "chetak"]},
-    "Auto: TVS Motor": {"ticker": "TVSMOTOR.NS", "keywords": ["tvs motor", "tvs"]},
-    "Auto: Tube Investments": {"ticker": "TIINDIA.NS", "keywords": ["tube investments", "tiindia"]},
     
-    # 2. Defense
-    "Defense: BEL": {"ticker": "BEL.NS", "keywords": ["bharat electronics", "bel"]},
-    "Defense: HAL": {"ticker": "HAL.NS", "keywords": ["hindustan aeronautics", "hal"]},
+    # 3. Defense & Heavy Engineering (Momentum)
     "Defense Ship: Mazdock": {"ticker": "MAZDOCK.NS", "keywords": ["mazagon dock", "mazdock"]},
-    "Defense: BDL": {"ticker": "BDL.NS", "keywords": ["bharat dynamics", "bdl"]},
-    "Defense: Zen Tech": {"ticker": "ZENTEC.NS", "keywords": ["zen technologies", "zen tech"]},
     
-    # 3. Power & Renewables
-    "Power: Tata Power": {"ticker": "TATAPOWER.NS", "keywords": ["tata power"]},
-    "Power: Suzlon": {"ticker": "SUZLON.NS", "keywords": ["suzlon"]},
-    "Power: NTPC Green": {"ticker": "NTPCGREEN.NS", "keywords": ["ntpc green", "ntpc"]},
-    "Power: Adani Green": {"ticker": "ADANIGREEN.NS", "keywords": ["adani green"]},
-    "Power: Inox Wind": {"ticker": "INOXWIND.NS", "keywords": ["inox wind"]},
+    # 4. Pharma & Healthcare (Defensive)
+    "Pharma: Wockhardt (Wockpharma)": {"ticker": "WOCKPHARMA.NS", "keywords": ["wockhardt", "wockpharma"]},
     
-    # 4. Marine & Logistics
-    "Marine: Adani Ports": {"ticker": "ADANIPORTS.NS", "keywords": ["adani ports", "mundra"]},
-    "Marine: GE Shipping": {"ticker": "GESHIPPING.NS", "keywords": ["ge shipping", "great eastern"]},
-    "Marine: Concor": {"ticker": "CONCOR.NS", "keywords": ["concor", "container corporation"]},
-    "Marine: SCI": {"ticker": "SCI.NS", "keywords": ["shipping corporation", "sci"]},
-    "Marine: Allcargo": {"ticker": "ALLCARGO.NS", "keywords": ["allcargo"]},
+    # 5. Consumer & Specialty Retail (Sotl, Kmew)
+    "Consumer: Senco Gold (Sotl)": {"ticker": "SENCO.NS", "keywords": ["senco gold", "senco", "sotl"]},
+    "Consumer: Kewal Kiran (Kmew)": {"ticker": "KEMISTAR.NS", "keywords": ["kewal kiran", "kmew"]},
     
-    # 5. Pharma & Custom Additions
-    "Pharma: Sun Pharma": {"ticker": "SUNPHARMA.NS", "keywords": ["sun pharma", "sun pharmaceutical"]},
-    "Pharma: Dr Reddy": {"ticker": "DRREDDY.NS", "keywords": ["dr reddy", "dr. reddy"]},
-    "Pharma: Cipla": {"ticker": "CIPLA.NS", "keywords": ["cipla"]},
-    "Pharma: Divis Lab": {"ticker": "DIVISLAB.NS", "keywords": ["divis laboratories", "divi's"]},
-    "Pharma: Wockhardt": {"ticker": "WOCKPHARMA.NS", "keywords": ["wockhardt", "wockpharma"]},
-    
-    # 6. Real Estate & Infrastructure Beta
+    # 6. Real Estate & Infrastructure Beta (Omaxe)
     "Realty: Omaxe": {"ticker": "OMAXE.NS", "keywords": ["omaxe"]},
     
-    # 7. Holding & Financial Beta
-    "Holding: Tata Investment": {"ticker": "TATAINVEST.NS", "keywords": ["tata investment", "tatsilv"]},
-    
-    # 8. Consumer & Specialty
-    "Consumer: Senco Gold": {"ticker": "SENCO.NS", "keywords": ["senco gold", "senco", "sotl"]},
-    "Consumer: Kewal Kiran": {"ticker": "KEMISTAR.NS", "keywords": ["kewal kiran", "kmew"]},
-
-    # 9. Energy Upstream (Crude Hedge Play)
-    "Energy: ONGC (Crude Hedge)": {"ticker": "ONGC.NS", "keywords": ["ongc", "oil and natural gas", "crude", "oil prices"]},
-
-    # 10. Metals & Mining
-    "Metal: Tata Steel": {"ticker": "TATASTEEL.NS", "keywords": ["tata steel"]},
-    "Metal: Hindalco": {"ticker": "HINDALCO.NS", "keywords": ["hindalco"]},
-    "Metal: JSW Steel": {"ticker": "JSWSTEEL.NS", "keywords": ["jsw steel"]},
-    "Metal: Jindal Stainless": {"ticker": "JSL.NS", "keywords": ["jindal stainless", "jsl"]},
-    "Metal: Vedanta": {"ticker": "VEDL.NS", "keywords": ["vedanta", "vedl"]},
-    
-    # 11. Banking & Financials
-    "Bank: ICICI Bank": {"ticker": "ICICIBANK.NS", "keywords": ["icici bank", "icici"]},
-    "Bank: Axis Bank": {"ticker": "AXISBANK.NS", "keywords": ["axis bank"]},
-    "Bank: SBI": {"ticker": "SBIN.NS", "keywords": ["state bank of india", "sbi"]},
-    "Bank: Bajaj Finance": {"ticker": "BAJFINANCE.NS", "keywords": ["bajaj finance"]},
-    "Bank: Chola Investment": {"ticker": "CHOLAFIN.NS", "keywords": ["cholamandalam", "chola"]}
+    # 7. Energy Upstream (Crude Geopolitical Hedge)
+    "Energy: ONGC (Crude Hedge)": {"ticker": "ONGC.NS", "keywords": ["ongc", "oil and natural gas", "crude", "oil prices"]}
 }
 
 def send_telegram_alert(message):
@@ -153,13 +115,15 @@ def send_telegram_alert(message):
 
 @st.cache_data(ttl=300)
 def fetch_stock_data(ticker):
+    """Fetches stock data with rate-limit throttling and multi-attempt retry."""
     for attempt in range(3):
         try:
+            time.sleep(0.4)  # Throttling delay to prevent API blocks
             stock = yf.Ticker(ticker)
             df = stock.history(period="3mo", interval="1d")
             
             if df is None or df.empty or len(df) < 20:
-                time.sleep(1)
+                time.sleep(0.5)
                 continue
                 
             if isinstance(df.columns, pd.MultiIndex):
@@ -183,30 +147,25 @@ def fetch_stock_data(ticker):
             
             return df.iloc[-1]
         except Exception as e:
-            time.sleep(1)
+            time.sleep(0.5)
             continue
     return None
 
 def find_matching_news(keywords, news_items):
-    """Scans headlines for stock keywords AND high-impact corporate catalysts (bonus, split, dividend, order win)."""
     catalyst_tags = ["bonus", "split", "dividend", "rights", "order", "acquisition", "expansion", "partnership", "approval"]
-    
     for item in news_items:
         title = item['title']
         for kw in keywords:
             if kw in title:
-                # Check if it contains a major corporate action tag
                 matched_tag = next((tag for tag in catalyst_tags if tag in title), "General News")
                 formatted_catalyst = f"[{matched_tag.upper()}] {item['raw_title']}"
                 return formatted_catalyst, True
-                
     return "No recent breaking news catalyst", False
 
 # --- STREAMLIT WEB UI ---
 st.set_page_config(page_title="Quantitative Swing Trading Alpha Engine", layout="wide")
-st.title("⚡ Quantitative Swing Trading Dashboard (Enhanced Corporate Catalysts)")
+st.title("⚡ Quantitative Custom Swing Trading Dashboard")
 
-# Macro Dashboards (Nifty + Brent Crude)
 col1, col2 = st.columns(2)
 is_bullish_market = check_market_regime()
 brent_price, brent_status = fetch_brent_crude_macro()
@@ -249,22 +208,24 @@ for label, info in WATCHLIST.items():
         continue
         
     try:
-        ltp = float(latest['Close'])
-        ema20 = float(latest['EMA_20'])
-        atr14 = float(latest['ATR_14'])
-        buy_limit = float(latest['Buy_Limit'])
-        sell_limit = float(latest['Sell_Limit'])
-        volume = float(latest['Volume'])
-        vol_sma20 = float(latest['Vol_SMA_20'])
+        ltp = float(latest['Close']) if pd.notna(latest['Close']) else 0.0
+        ema20 = float(latest['EMA_20']) if pd.notna(latest['EMA_20']) else 0.0
+        atr14 = float(latest['ATR_14']) if pd.notna(latest['ATR_14']) else 0.0
+        buy_limit = float(latest['Buy_Limit']) if pd.notna(latest['Buy_Limit']) else 0.0
+        sell_limit = float(latest['Sell_Limit']) if pd.notna(latest['Sell_Limit']) else 0.0
+        volume = float(latest['Volume']) if pd.notna(latest['Volume']) else 0.0
+        vol_sma20 = float(latest['Vol_SMA_20']) if pd.notna(latest['Vol_SMA_20']) else 0.0
         
-        distance_from_ema = ((ltp - ema20) / ema20) * 100
+        if ltp == 0.0 or buy_limit == 0.0:
+            raise ValueError("Invalid price calculated")
+            
+        distance_from_ema = ((ltp - ema20) / ema20) * 100 if ema20 > 0 else 0.0
         volume_confirmed = volume > vol_sma20
         
-        risk_per_share = 1.2 * atr14
+        risk_per_share = 1.2 * atr14 if atr14 > 0 else 1.0
         suggested_qty = int(MAX_RISK_PER_TRADE / risk_per_share) if risk_per_share > 0 else 0
         allocated_capital = min(125000, suggested_qty * ltp)
         
-        # --- QUANTITATIVE CONVERGENCE ENGINE ---
         if is_bullish_market and ltp <= buy_limit * 1.01 and volume_confirmed:
             status = "STRONG BUY"
             if has_news:
@@ -301,20 +262,15 @@ for label, info in WATCHLIST.items():
         dashboard_data.append({
             "Watchlist Item": label,
             "Ticker": ticker,
-            "Status": "CALC ERROR",
-            "Action Trigger": str(e),
+            "Status": "DATA UNAVAILABLE",
+            "Action Trigger": "Retry on Refresh",
             "Rec. Qty": 0,
             "Tranche (₹)": 0,
             "LTP (₹)": 0.0,
             "Buy Limit (₹)": 0.0,
             "Sell Target (₹)": 0.0,
-            "Portal News Catalyst": "Error parsing"
+            "Portal News Catalyst": "Error parsing data"
         })
 
 df_display = pd.DataFrame(dashboard_data)
 st.dataframe(df_display, width='stretch')
-
-st.markdown("---")
-st.markdown("### 💡 Quantitative Macro Rules & Corporate Catalyst Scanning (₹5L Capital)")
-st.markdown("- **Corporate Action Scanner:** Automatically flags headlines mentioning **Bonus Shares, Stock Splits, Dividends, Rights Issues, and Order Wins**.")
-st.markdown("- **Robust Sanitization:** Cleaned up data rows so network timeouts display clean placeholders instead of `None` values.")
